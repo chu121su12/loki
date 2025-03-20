@@ -896,3 +896,133 @@ func TestParallelJobs(t *testing.T) {
 		)
 	}
 }
+
+func mustParseNano(date string) time.Time {
+	value, err := time.Parse(time.RFC3339Nano, date)
+	if err != nil {
+		panic(fmt.Errorf("invalid timestamp: %w", err))
+	}
+	return value
+}
+
+func TestMustSetTimeRange(t *testing.T) {
+	mockNow := mustParseNano("2012-04-05T15:04:05.000000000+07:00")
+	since1h := time.Duration(60 * 60 * 1_000_000_000)
+
+	tests := []struct {
+		name           string
+		from           string
+		to             string
+		since          time.Duration
+		expectedFrom   time.Time
+		expectedTo     time.Time
+		expectedFormat string
+	}{
+		{
+			name:           "no date format",
+			expectedFrom:   mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "parse and use RFC3339",
+			from:           "2006-02-03T15:04:05+07:00",
+			to:             "2006-02-03T15:04:05+06:00",
+			expectedFrom:   mustParseNano("2006-02-03T08:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2006-02-03T09:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "parse and use RFC3339Nano",
+			from:           "2006-02-03T15:04:05.000000789+07:00",
+			to:             "2006-02-03T15:04:05+06:00",
+			expectedFrom:   mustParseNano("2006-02-03T08:04:05.000000789Z"),
+			expectedTo:     mustParseNano("2006-02-03T09:04:05.000000000Z"),
+			expectedFormat: time.RFC3339Nano,
+		},
+		{
+			name:           "parse and use StampMicro",
+			from:           "Jan 2 15:04:05.000000",
+			to:             "Jan 2 16:04:05.000000",
+			expectedFrom:   mustParseNano("2012-01-02T15:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2012-01-02T16:04:05.000000000Z"),
+			expectedFormat: time.StampMicro,
+		},
+		{
+			name:           "parse and use Kitchen to TimeOnly",
+			from:           "3:04PM",
+			to:             "16:05:06",
+			expectedFrom:   mustParseNano("2012-04-05T15:04:00.000000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T16:05:06.000000000Z"),
+			expectedFormat: time.Kitchen,
+		},
+		{
+			name:           "parse Layout from --from",
+			from:           "01/02 03:04:05PM '06 -0700",
+			expectedFrom:   mustParseNano("2006-01-02T22:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.Layout,
+		},
+		{
+			name:           "parse UnixDate from --to",
+			to:             "Mon Jan 2 15:04:05 MST 2006",
+			expectedFrom:   mustParseNano("2006-01-02T15:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2006-01-02T15:04:05.000000000Z"),
+			expectedFormat: time.UnixDate,
+		},
+		{
+			name:           "default --since 1h",
+			since:          since1h,
+			expectedFrom:   mustParseNano("2012-04-05T07:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "--from discards --since",
+			from:           "2006-02-03T15:04:05Z",
+			since:          since1h,
+			expectedFrom:   mustParseNano("2006-02-03T15:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "--to with --since",
+			to:             "2006-02-03T16:04:05Z",
+			since:          since1h,
+			expectedFrom:   mustParseNano("2006-02-03T15:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2006-02-03T16:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "parse epoch second as RFC3339",
+			from:           "1138953845",
+			expectedFrom:   mustParseNano("2006-02-03T08:04:05.000000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "parse epoch nano as RFC3339",
+			from:           "1138953845000000789",
+			expectedFrom:   mustParseNano("2006-02-03T08:04:05.000000789Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+		{
+			name:           "parse and truncate epoch decimal as RFC3339",
+			from:           "1138953845.123456",
+			expectedFrom:   mustParseNano("2006-02-03T08:04:05.123000000Z"),
+			expectedTo:     mustParseNano("2012-04-05T08:04:05.000000000Z"),
+			expectedFormat: time.RFC3339,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q := Query{}
+			q.SetRangedTime(tt.from, tt.to, mockNow, tt.since)
+			assert.Equal(t, tt.expectedFrom, q.Start.UTC())
+			assert.Equal(t, tt.expectedTo, q.End.UTC())
+			assert.Equal(t, tt.expectedFormat, q.OutputFormat)
+		})
+	}
+}

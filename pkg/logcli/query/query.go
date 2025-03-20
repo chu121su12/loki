@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +42,7 @@ const schemaConfigFilename = "schemaconfig"
 // Query contains all necessary fields to execute instant and range queries and print the results.
 type Query struct {
 	QueryString            string
+	OutputFormat           string
 	Start                  time.Time
 	End                    time.Time
 	Limit                  int
@@ -593,4 +597,102 @@ func (q *Query) resultsDirection() logproto.Direction {
 		return logproto.FORWARD
 	}
 	return logproto.BACKWARD
+}
+
+var datetimeFormats = []string{
+	time.Kitchen,
+	time.TimeOnly,
+	time.DateOnly,
+
+	time.Layout,
+	time.ANSIC,
+	time.UnixDate,
+	time.RubyDate,
+	time.RFC822,
+	time.RFC822Z,
+	time.RFC850,
+	time.RFC1123,
+	time.RFC1123Z,
+	time.RFC3339,
+	time.RFC3339Nano,
+	time.StampNano,
+	time.StampMicro,
+	time.StampMilli,
+	time.Stamp,
+	time.DateTime,
+}
+
+func mustParseTimeWithLayout(value string, def time.Time) (string, time.Time) {
+	if value == "" {
+		return time.RFC3339Nano, def
+	}
+
+	matchedFormat := ""
+	matchedTs := def
+	for _, format := range datetimeFormats {
+		ts, err := time.Parse(format, value)
+		if err == nil {
+			if ts.Format(format) == value {
+				matchedFormat = format
+				matchedTs = ts
+				break
+			}
+			if matchedFormat == "" {
+				matchedFormat = format
+				matchedTs = ts
+			}
+		}
+	}
+
+	switch matchedFormat {
+	case "":
+		break
+
+	case time.Stamp, time.StampMilli, time.StampMicro, time.StampNano:
+		return matchedFormat, matchedTs.AddDate(def.Year(), 0, 0)
+
+	case time.Kitchen, time.TimeOnly:
+		return matchedFormat, matchedTs.AddDate(def.Year(), int(def.Month()) - 1, def.Day() - 1)
+		
+	default:
+		return matchedFormat, matchedTs
+	}
+
+	if strings.Contains(value, ".") {
+		if t, err := strconv.ParseFloat(value, 64); err == nil {
+			s, ns := math.Modf(t)
+			ns = math.Round(ns*1000) / 1000
+			return "", time.Unix(int64(s), int64(ns*float64(time.Second)))
+		}
+	}
+	nanos, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		log.Fatalf("Unable to parse time %v", err)
+	}
+	if len(value) <= 10 {
+		return "", time.Unix(nanos, 0)
+	}
+	return "", time.Unix(0, nanos)
+}
+
+func (q *Query) SetRangedTime(from string, to string, defaultEnd time.Time, since time.Duration) {
+	endFormat, endTime := mustParseTimeWithLayout(to, defaultEnd)
+
+	defaultStart := defaultEnd.Add(-since)
+	if from == "" && to != "" && endFormat != "" {
+		defaultStart = endTime.Add(-since)
+	}
+
+	startFormat, startTime := mustParseTimeWithLayout(from, defaultStart)
+
+	if from != "" && startFormat != "" {
+		q.OutputFormat = startFormat
+	} else if to != "" && endFormat != "" {
+		q.OutputFormat = endFormat
+	} else {
+		q.OutputFormat = time.RFC3339
+	}
+
+	q.Start = startTime
+	q.End = endTime
 }

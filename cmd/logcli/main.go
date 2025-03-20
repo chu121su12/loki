@@ -76,8 +76,8 @@ of excluded labels. This extra information can be suppressed with the
 By default we look over the last hour of data; use --since to modify
 or provide specific start and end times with --from and --to respectively.
 
-Notice that when using --from and --to then ensure to use RFC3339Nano
-time format, but without timezone at the end. The local timezone will be added
+When using --from and/or --to the output format will use the formatting
+obtained from --from then --to. The local timezone will be added
 automatically or if using  --timezone flag.
 In default output mode the --output-timestamp-format flag can be used to 
 modify the output timestamp.
@@ -381,9 +381,10 @@ func main() {
 		}
 
 		outputOptions := &output.LogOutputOptions{
-			Timezone:      location,
-			NoLabels:      rangeQuery.NoLabels,
-			ColoredOutput: rangeQuery.ColoredOutput,
+			Timezone:        location,
+			NoLabels:        rangeQuery.NoLabels,
+			ColoredOutput:   rangeQuery.ColoredOutput,
+			TimestampFormat: rangeQuery.OutputFormat,
 		}
 
 		switch *outputTimestampFmt {
@@ -603,12 +604,9 @@ func newQuery(instant bool, cmd *kingpin.CmdClause) *query.Query {
 
 		if instant {
 			q.SetInstant(mustParse(now, time.Now()))
+			q.OutputFormat = time.RFC3339
 		} else {
-			defaultEnd := time.Now()
-			defaultStart := defaultEnd.Add(-since)
-
-			q.Start = mustParse(from, defaultStart)
-			q.End = mustParse(to, defaultEnd)
+			q.SetRangedTime(from, to, time.Now(), since)
 
 			if q.ParallelMaxWorkers < 1 {
 				log.Println("parallel-max-workers must be greater than 0, defaulting to 1.")

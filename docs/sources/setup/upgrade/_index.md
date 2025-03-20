@@ -449,6 +449,10 @@ The `metrics_namespace` setting is deprecated already. It will be removed in the
 Previously LogCLI used to fetch remote schema from the store configured in `-boltdb.shipper.shared-store` when `-remote-schema` is set to `true`.
 A new CLI flag `-schema-store` is introduced as a replacement to configure the store for retrieving remote schema.
 
+#### Automatic timestamp format detection from --from and --to
+
+Previously in default output mode, the output timestamp is in `RFC3339`. When `--from`, `--to` or both are specified, LogCLI will try to guess and use the format specified and use it for output timestamp formatting. Use `--output-timestamp-format=rfc3339` to preserve the old behavior.
+
 ## 2.9.0
 
 ### Loki 2.9.0
